@@ -5,9 +5,12 @@ import com.bank.cms.dto.request.CreateAccountRequest;
 import com.bank.cms.dto.response.AccountResponse;
 import com.bank.cms.entity.Account;
 import com.bank.cms.service.AccountService;
+import com.bank.cms.service.impl.AccountServiceImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -16,6 +19,9 @@ import org.springframework.web.bind.annotation.*;
 public class AccountController {
 
     private final AccountService accountService;
+
+    @Autowired
+    private AccountServiceImpl accountServiceImpl;
 
     public AccountController(AccountService accountService) {
         this.accountService = accountService;
@@ -60,5 +66,15 @@ public class AccountController {
                 "Account fetched successfully",
                 response
         );
+    }
+
+
+    @Operation(summary = "Get account by Account Number")
+    @GetMapping("/accountNumber")
+    public ResponseEntity<ApiResponse<AccountResponse>> getAccountByAcctNum(@RequestParam String accountNumber) {
+        AccountResponse account = accountServiceImpl.findByAccountNumber(accountNumber);
+        ApiResponse<AccountResponse> response = new ApiResponse<>("Success","Account fetched successfully" , account);
+
+        return ResponseEntity.ok(response);
     }
 }

@@ -1,5 +1,10 @@
 package com.bank.cms.dto.response;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@AllArgsConstructor
+@Data
 public class AccountResponse {
 
     private Long accountId;
@@ -7,17 +12,7 @@ public class AccountResponse {
     private String customerName;
     private Double balance;
 
-    public AccountResponse(Long accountId, String accountNumber,
-                           String customerName, Double balance) {
-        this.accountId = accountId;
-        this.accountNumber = accountNumber;
-        this.customerName = customerName;
-        this.balance = balance;
-    }
+    public AccountResponse() {
 
-    // getters only
-    public Long getAccountId() { return accountId; }
-    public String getAccountNumber() { return accountNumber; }
-    public String getCustomerName() { return customerName; }
-    public Double getBalance() { return balance; }
+    }
 }
