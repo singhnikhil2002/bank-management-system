@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 
 @AllArgsConstructor
+
 @Data
 public class AccountResponse {
 
@@ -11,6 +12,9 @@ public class AccountResponse {
     private String accountNumber;
     private String customerName;
     private Double balance;
+    private String emailId;
+    private String mobileNumber;
+    private String address;
 
     public AccountResponse() {
 

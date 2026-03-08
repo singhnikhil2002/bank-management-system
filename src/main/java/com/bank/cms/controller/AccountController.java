@@ -2,6 +2,7 @@ package com.bank.cms.controller;
 
 import com.bank.cms.api.response.ApiResponse;
 import com.bank.cms.dto.request.CreateAccountRequest;
+import com.bank.cms.dto.request.UpdateAccountRequest;
 import com.bank.cms.dto.response.AccountResponse;
 import com.bank.cms.entity.Account;
 import com.bank.cms.service.AccountService;
@@ -38,7 +39,10 @@ public class AccountController {
                 account.getId(),
                 account.getAccountNumber(),
                 account.getCustomerName(),
-                account.getBalance()
+                account.getBalance(),
+                account.getEmailId(),
+                account.getMobileNumber(),
+                account.getAddress()
         );
 
         return new ApiResponse<>(
@@ -58,7 +62,10 @@ public class AccountController {
                 account.getId(),
                 account.getAccountNumber(),
                 account.getCustomerName(),
-                account.getBalance()
+                account.getBalance(),
+                account.getEmailId(),
+                account.getMobileNumber(),
+                account.getAddress()
         );
 
         return new ApiResponse<>(
@@ -76,5 +83,29 @@ public class AccountController {
         ApiResponse<AccountResponse> response = new ApiResponse<>("Success","Account fetched successfully" , account);
 
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Amend account details by accountNumber")
+    @PutMapping("/{accountNumber}")
+    public ApiResponse<AccountResponse> amendAccountByAccountNumber(@PathVariable String accountNumber,@Valid @RequestBody UpdateAccountRequest request){
+        AccountResponse account = accountServiceImpl.amendAccountByAccountNumber(accountNumber,request);
+
+        AccountResponse response = new AccountResponse(
+                account.getAccountId(),
+                account.getAccountNumber(),
+                account.getCustomerName(),
+                account.getBalance(),
+                account.getEmailId(),
+                account.getMobileNumber(),
+                account.getAddress()
+        );
+
+
+        return new ApiResponse<>(
+                "Success",
+                "Account updated successfully",
+                response
+        );
+
     }
 }
