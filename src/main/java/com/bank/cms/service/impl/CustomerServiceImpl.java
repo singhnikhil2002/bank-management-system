@@ -2,6 +2,7 @@ package com.bank.cms.service.impl;
 
 import com.bank.cms.dto.request.CreateCustomerRequest;
 import com.bank.cms.entity.Customer;
+import com.bank.cms.exception.ResourceNotFoundException;
 import com.bank.cms.repository.AccountRepository;
 import com.bank.cms.repository.CustomerRepository;
 import com.bank.cms.service.CustomerService;
@@ -35,6 +36,17 @@ public class CustomerServiceImpl implements CustomerService {
         // send the customer created object to repository layer.
         // repository layer will insert this into db
         return customerRepository.save(customer);
+    }
+
+    @Override // request received from controller
+    public Customer findCustomerByCifNumber(String cifNumber){
+
+        // request send to repository layer
+        Customer customer = customerRepository.findCustomerByCifNumber(cifNumber).orElseThrow(() ->
+                new ResourceNotFoundException("Account not found with this number : " + cifNumber)
+            );
+
+        return customer;
     }
 
     private String generateCifNumber() {

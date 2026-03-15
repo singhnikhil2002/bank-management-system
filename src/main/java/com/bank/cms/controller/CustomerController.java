@@ -8,10 +8,7 @@ import com.bank.cms.service.CustomerService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/customer")
@@ -44,6 +41,30 @@ public class CustomerController {
         return new ApiResponse<>(
                 "Success",
                 "Customer created sucessfully",
+                response
+        );
+    }
+
+    @Operation(summary = "Get customer by CIF Number")
+    @GetMapping("{cifNumber}")
+    public ApiResponse<CustomerResponse> getCustomerByCifNumber(@PathVariable String cifNumber){
+
+        // request sent to service layer
+        Customer customer = customerService.findCustomerByCifNumber(cifNumber);
+
+        // We will create response obj to return to user
+        CustomerResponse response = new CustomerResponse();
+        response.setCifNumber(customer.getCifNumber());
+        response.setCustomerName(customer.getCustomerName());
+        response.setAddress(customer.getAddress());
+        response.setMobileNumber(customer.getMobileNumber());
+        response.setDateOfBirth(customer.getDateOfBirth());
+        response.setAadharNumber(customer.getAadharNumber());
+        response.setStatus(customer.getStatus());
+
+        return new ApiResponse<>(
+                "Success",
+                "Customer information fetched",
                 response
         );
     }

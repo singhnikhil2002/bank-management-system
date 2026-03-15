@@ -7,4 +7,6 @@ import org.springframework.stereotype.Service;
 public interface CustomerService {
 
     Customer createCustomer(CreateCustomerRequest request);
+
+    Customer findCustomerByCifNumber(String cifNumber);
 }
