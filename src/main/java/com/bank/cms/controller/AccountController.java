@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "Account Service", description = "APIs related to account management")
 public class AccountController {
 
-    private final AccountService accountService;
+    private final  AccountService accountService;
 
     @Autowired
     private AccountServiceImpl accountServiceImpl;

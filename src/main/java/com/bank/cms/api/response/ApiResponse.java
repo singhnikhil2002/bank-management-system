@@ -16,6 +16,10 @@ public class ApiResponse<T> {
         this.timestamp = LocalDateTime.now();
     }
 
+    public ApiResponse() {
+
+    }
+
     // getters only (immutable response pattern)
     public String getStatus() { return status; }
     public String getMessage() { return message; }
