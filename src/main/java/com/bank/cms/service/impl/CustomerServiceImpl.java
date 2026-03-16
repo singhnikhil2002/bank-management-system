@@ -1,6 +1,8 @@
 package com.bank.cms.service.impl;
 
 import com.bank.cms.dto.request.CreateCustomerRequest;
+import com.bank.cms.dto.request.UpdateCustomerRequest;
+import com.bank.cms.dto.response.CustomerResponse;
 import com.bank.cms.entity.Customer;
 import com.bank.cms.exception.ResourceNotFoundException;
 import com.bank.cms.repository.AccountRepository;
@@ -43,10 +45,45 @@ public class CustomerServiceImpl implements CustomerService {
 
         // request send to repository layer
         Customer customer = customerRepository.findCustomerByCifNumber(cifNumber).orElseThrow(() ->
-                new ResourceNotFoundException("Account not found with this number : " + cifNumber)
+                new ResourceNotFoundException("Customer not found with this number : " + cifNumber)
             );
 
         return customer;
+    }
+
+    @Override
+    public CustomerResponse amendByCifNumber(UpdateCustomerRequest request, String cifNumber){
+
+        Customer customer = customerRepository.findCustomerByCifNumber(cifNumber).orElseThrow(()->
+                    new ResourceNotFoundException("Customer not found with this cif :" + cifNumber)
+                );
+
+        // request is created
+        // this will go db via repository
+        customer.setCustomerName(request.getCustomerName());
+        customer.setMobileNumber(request.getMobileNumber());
+        customer.setAddress(request.getAddress());
+        customer.setAadharNumber(request.getAadharNumber());
+        customer.setDateOfBirth(request.getDateOfBirth());
+
+        // request saved in db
+        customerRepository.save(customer);
+
+        return mapToAccount(customer);
+    }
+
+    public CustomerResponse mapToAccount(Customer customer){
+        CustomerResponse response = new CustomerResponse();
+
+        response.setCifNumber(customer.getCifNumber());
+        response.setCustomerName(customer.getCustomerName());
+        response.setAddress(customer.getAddress());
+        response.setMobileNumber(customer.getMobileNumber());
+        response.setDateOfBirth(customer.getDateOfBirth());
+        response.setAadharNumber(customer.getAadharNumber());
+        response.setStatus(customer.getStatus());
+
+        return response;
     }
 
     private String generateCifNumber() {

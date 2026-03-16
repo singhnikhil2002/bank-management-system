@@ -2,6 +2,7 @@ package com.bank.cms.controller;
 
 import com.bank.cms.api.response.ApiResponse;
 import com.bank.cms.dto.request.CreateCustomerRequest;
+import com.bank.cms.dto.request.UpdateCustomerRequest;
 import com.bank.cms.dto.response.CustomerResponse;
 import com.bank.cms.entity.Customer;
 import com.bank.cms.service.CustomerService;
@@ -65,6 +66,28 @@ public class CustomerController {
         return new ApiResponse<>(
                 "Success",
                 "Customer information fetched",
+                response
+        );
+    }
+
+    @Operation(summary = "Update existing customer")
+    @PutMapping("/updateCustomer/{cifNumber}")
+    public ApiResponse<CustomerResponse> updateCustomer(@Valid @RequestBody UpdateCustomerRequest request, @PathVariable String cifNumber){
+        // request is send to service layer
+        CustomerResponse response = customerService.amendByCifNumber(request,cifNumber);
+
+        response.setCifNumber(cifNumber);
+        response.setCustomerName(request.getCustomerName());
+        response.setMobileNumber(request.getMobileNumber());
+        response.setDateOfBirth(request.getDateOfBirth());
+        response.setAddress(request.getAddress());
+        response.setAadharNumber(request.getAadharNumber());
+        response.setStatus(true);
+
+        // response returned to user
+        return new ApiResponse<>(
+                "Success",
+                "Updated Successfully",
                 response
         );
     }
