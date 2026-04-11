@@ -91,4 +91,31 @@ public class CustomerController {
                 response
         );
     }
+
+    @Operation(summary = "Find customer by Account Type")
+    @GetMapping("/customerName")
+    public ApiResponse<CustomerResponse> getCustomerByName(@RequestParam String customerName){
+        Customer customer = customerService.findCustomerByName(customerName);
+
+        return new ApiResponse<>(
+                "Success",
+                "Customer information fetch",
+                response(customer)
+        );
+    }
+
+    public CustomerResponse response(Customer customer){
+        CustomerResponse responseObj = new CustomerResponse();
+
+        responseObj.setCifNumber(customer.getCifNumber());
+        responseObj.setCustomerName(customer.getCustomerName());
+        responseObj.setMobileNumber(customer.getMobileNumber());
+        responseObj.setDateOfBirth(customer.getDateOfBirth());
+        responseObj.setAddress(customer.getAddress());
+        responseObj.setAadharNumber(customer.getAadharNumber());
+        responseObj.setStatus(true);
+
+        return responseObj;
+    }
+
 }

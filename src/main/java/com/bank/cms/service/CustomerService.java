@@ -13,4 +13,7 @@ public interface CustomerService {
     Customer findCustomerByCifNumber(String cifNumber);
 
     CustomerResponse amendByCifNumber(UpdateCustomerRequest request, String cifNumber);
+
+    Customer findCustomerByName(String customerName);
+
 }

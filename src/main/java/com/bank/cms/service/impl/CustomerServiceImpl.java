@@ -52,6 +52,14 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
+    public Customer findCustomerByName(String customerName){
+
+        Customer customer = customerRepository.findByCustomerName(customerName).orElseThrow(() ->
+                new ResourceNotFoundException("Customer not found with this name : " + customerName));
+        return customer;
+    }
+
+    @Override
     public CustomerResponse amendByCifNumber(UpdateCustomerRequest request, String cifNumber){
 
         Customer customer = customerRepository.findCustomerByCifNumber(cifNumber).orElseThrow(()->

@@ -9,7 +9,7 @@ public interface AccountService {
 
     Account getAccountById(Long id);
 
-//   AccountResponse findByAccountNumber(String accountNumber);
+ //  Account findByAccountNumber(String accountNumber);
 
 }
 
