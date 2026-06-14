@@ -28,6 +28,7 @@ public class AccountServiceImpl implements AccountService {
     public Account createAccount(CreateAccountRequest request) {
 
         Account account = new Account();
+        account.setCifNumber(request.getCifNumber());
         account.setCustomerName(request.getCustomerName());
         account.setBalance(request.getInitialBalance());
         account.setAccountNumber(generateAccountNumber());
@@ -73,6 +74,7 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse mapAccount(Account account){
         AccountResponse dto = new AccountResponse();
         dto.setAccountId(account.getId());
+        dto.setCifNumber(account.getCifNumber());
         dto.setAccountNumber(account.getAccountNumber());
         dto.setBalance(account.getBalance());
         dto.setCustomerName(account.getCustomerName());

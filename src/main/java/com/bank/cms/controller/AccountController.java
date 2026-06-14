@@ -37,6 +37,7 @@ public class AccountController {
 
         AccountResponse response = new AccountResponse(
                 account.getId(),
+                account.getCifNumber(),
                 account.getAccountNumber(),
                 account.getCustomerName(),
                 account.getBalance(),
@@ -60,6 +61,7 @@ public class AccountController {
 
         AccountResponse response = new AccountResponse(
                 account.getId(),
+                account.getCifNumber(),
                 account.getAccountNumber(),
                 account.getCustomerName(),
                 account.getBalance(),
@@ -92,6 +94,7 @@ public class AccountController {
 
         AccountResponse response = new AccountResponse(
                 account.getAccountId(),
+                account.getCifNumber(),
                 account.getAccountNumber(),
                 account.getCustomerName(),
                 account.getBalance(),

@@ -16,6 +16,9 @@ public class CreateAccountRequest {
     private String customerName;
 
     @NotNull
+    private String cifNumber;
+
+    @NotNull
     @Min(0)
     private Double initialBalance;
     private String emailId;

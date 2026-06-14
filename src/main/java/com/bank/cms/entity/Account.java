@@ -22,6 +22,9 @@ public class Account {
     private String mobileNumber;
     private String address;
 
+    @Column
+    private String cifNumber;
+
 
     // getters & setters
 
@@ -31,6 +34,9 @@ public class Account {
     public void setId(Long Id) {
         this.Id = Id;
     }
+
+    public String getCifNumber(){return cifNumber;}
+    public void setCifNumber(String cifNumber){this.cifNumber = cifNumber;}
 
     public String getAccountNumber(){
         return accountNumber;

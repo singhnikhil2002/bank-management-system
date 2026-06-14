@@ -7,8 +7,8 @@ import lombok.Data;
 
 @Data
 public class AccountResponse {
-
     private Long accountId;
+    private String cifNumber;
     private String accountNumber;
     private String customerName;
     private Double balance;

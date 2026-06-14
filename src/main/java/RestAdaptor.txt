@@ -1,0 +1,960 @@
+package json.com.tcs.bancs.adapter;
+
+import json.bc.util.Comm;
+import json.bc.util.ConnectionPool;
+import json.bc.util.ConnectionPoolImpl;
+import json.bc.util.DateFormatter;
+import json.bc.util.FieldDef;
+import json.bc.util.MessageBank;
+import json.bc.util.MessageDef;
+import json.bc.util.RecoverComm;
+import json.bc.util.Util;
+import json.bc.util.XMLFilePathReader;
+
+import json.bc.webservice.BancsConstants;
+import json.bc.webservice.Dom4jLoad;
+
+import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.Logger;
+
+import org.dom4j.Document;
+import org.dom4j.DocumentException;
+import org.dom4j.DocumentHelper;
+import org.dom4j.Element;
+
+import org.json.JSONException;
+import org.json.XML;
+
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+import java.util.regex.Pattern;
+
+
+public class RestAdaptor {
+    private static final String txnXMLFilePath = XMLFilePathReader.getPropertyKeyValue("Bancs","TRN_XML");
+    private static final String tellerNo = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "teller");
+    private static final String instNo = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "institution");
+    private static final String branchNo = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "branch");
+    private static final String termIdNo = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "termid");
+    private static final String includeRsHeader = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "includersheader");
+    private static final boolean includeemptyRXNodes = Boolean.valueOf(XMLFilePathReader.getPropertyKeyValue(
+            "Bancs", "includeemptyRXNodes"));
+    private static final boolean jsonResponseAsString = Boolean.valueOf(XMLFilePathReader.getPropertyKeyValue(
+            "Bancs", "jsonResponseAsString"));
+    private static final String onlyAllowWhiteList = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "onlyAllowWhiteList");
+    private static final String whiteListCharacters = XMLFilePathReader.getPropertyKeyValue("Bancs",
+            "whiteListCharacters");
+    private static final Logger log = Logger.getLogger(RestAdaptor.class);
+    Map<Object, Object> messageDefValMap = Collections.synchronizedMap(new HashMap<>());//commented by shubhangi
+    public String PerformTxn(String inputJson) {
+        long beginTime = System.currentTimeMillis();
+        MessageBank msgBank = new MessageBank();
+        msgBank.inputStr = inputJson;
+        String jsonobj = null;
+        String apphdr = "";
+        String appmsg = "";
+        String txnTagName = "";
+        String InteractionId = "";
+        messageDefValMap.put("oHeaderMsgDefsVal", null);
+        messageDefValMap.put("iHeaderMsgDefsVal", null);
+        messageDefValMap.put("hostResponse", null);
+        messageDefValMap.put("tempMap1", null);
+        messageDefValMap.put("switchInRequest", false);
+        messageDefValMap.put("dataIterationStarted", false);
+        messageDefValMap.put("includeSatisfied", false);
+        messageDefValMap.put("inputStr", inputJson);
+
+        try {
+            InteractionId=inputJson.substring(inputJson.indexOf("InteractionId")+16, inputJson.indexOf("\"},\"Data\":{\"")).trim();
+            ArrayList al = performTXN(inputJson,InteractionId);
+            apphdr = (String) al.get(0);
+            appmsg = (String) al.get(1);
+            txnTagName = (String) al.get(2);
+            if(onlyAllowWhiteList!=null && Boolean.parseBoolean(onlyAllowWhiteList))
+            {
+                appmsg = appmsg.replaceAll(whiteListCharacters, " ");
+            }
+        } catch (ParseException e) {
+            e.printStackTrace();
+        } catch (DocumentException e) {
+            e.printStackTrace();
+        }
+
+        InputStream is = null;
+
+        try {
+            Util init = Util.getInstance();
+            init.init();
+        } catch (Exception e) {
+            if (is != null) {
+                try {
+                    is.close();
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+
+                is = null;
+            }
+        } finally {
+            try {
+                if (is != null) {
+                    is.close();
+                    is = null;
+                }
+            } catch (Exception e) {
+                if (is != null) {
+                    try {
+                        is.close();
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
+
+                    is = null;
+                }
+            }
+        }
+
+        Vector modifiedVector1 = new Vector();
+        modifiedVector1 = doHostAccess(appmsg, apphdr);
+        log.error("[X-Api-Interaction-Id:\"" + InteractionId+"\"]"+"  Response ByteStream  ======>" + modifiedVector1);
+        Dom4jLoad dom4jload = new Dom4jLoad();
+        if (modifiedVector1 == null) {
+            Vector temp = new Vector();
+            temp.add(0,
+                    apphdr.substring(0, BancsConstants.hostStatusStart) +
+                            BancsConstants.Exception_string);
+            modifiedVector1 = temp;
+        }
+        try {
+            long startTime = System.currentTimeMillis();
+            jsonobj = deserializeResponse(modifiedVector1, txnTagName,InteractionId);//modified by shubhangi 18.02.26
+            long endTime = System.currentTimeMillis();
+            log.debug("deserialize Time " + (endTime - startTime));
+            cleanUpStaticField();
+        } catch (DocumentException e) {
+            e.printStackTrace();
+        }
+        long endTime = System.currentTimeMillis();
+        log.error("Total Time Taken==>" + (endTime - beginTime));
+
+        return jsonobj;
+    }
+
+    private static void cleanUpStaticField() {
+    }
+
+    private ArrayList performTXN(String inputJson,String interactionId)
+            throws ParseException, DocumentException {
+        JSONObject txnData = null;
+        Hashtable resultData = new Hashtable();
+        Hashtable msgdef = new Hashtable();
+        msgdef.put("_iHeader", new MessageDef());
+        msgdef.put("_oHeader", new MessageDef());
+        msgdef.put("_ErrorMessage", new MessageDef());
+        msgdef.put("m", new MessageDef());
+        msgdef.put("temp", new MessageDef());
+        Date adapterStrtTime = new java.util.Date();
+
+        LinkedHashMap<String, String> headerValues = new LinkedHashMap<String, String>();
+        Dom4jLoad dom4jload = new Dom4jLoad();
+        String txnNo = null;
+
+        String txnTagName = null;
+        String apphdr = "";
+
+        JSONParser jsonParser = new JSONParser();
+        JSONObject jsonObject = (JSONObject) jsonParser.parse(inputJson);
+
+        String tranName = "";
+
+        for (Object key : jsonObject.keySet()) {
+            tranName = (String) key;
+
+            JSONObject keyvalue = (JSONObject) jsonObject.get(tranName);
+
+            JSONObject txnHeader = null;
+
+            try {
+                txnHeader = (JSONObject) keyvalue.get("RqHeader");
+
+                if (txnHeader == null) {
+                    txnHeader = new JSONObject();
+                }
+            } catch (Exception e) {
+            }
+
+            txnData = (JSONObject) keyvalue.get("Data");
+
+            StringBuffer headerbuffer = new StringBuffer();
+            StringBuffer databuffer = new StringBuffer();
+
+            Iterator<Map.Entry<Object, Object>> headerFields = txnHeader.entrySet()
+                    .iterator();
+            while (headerFields.hasNext()) {
+                Map.Entry<Object, Object> mapentry = (Map.Entry) headerFields.next();
+                String headerKey = (String) mapentry.getKey();
+
+                if (mapentry.getValue() != null /*&& !headerKey.equalsIgnoreCase("tranName")*/) {
+                    String headerValue = "";
+
+                    if (mapentry.getValue() instanceof JSONArray) {
+                    } else {
+                        headerValue = mapentry.getValue().toString();
+                        headerValue = headerValue.trim();
+
+                        headerValues.put(headerKey, headerValue);
+                    }
+                }
+            }
+            if (txnNo == null) {
+                Document docOp = dom4jload.loadDocumentCached(new File(txnXMLFilePath +
+                        "/CFG.xml"));
+                List txCFGList = docOp.selectNodes("//TX");
+                Iterator txCFGIter = txCFGList.iterator();
+
+                while (txCFGIter.hasNext()) {
+                    Iterator txCFGChildIter = getChildIterator(txCFGIter);
+
+                    while (txCFGChildIter.hasNext()) {
+                        Element txCFGChildElem = (Element) txCFGChildIter.next();
+
+                        if (txCFGChildElem.getName().equalsIgnoreCase(tranName)) {
+                            txnNo = txCFGChildElem.attributeValue("number");
+
+                            break;
+                        }
+                    }
+                }
+
+                MessageBank msgBank = new MessageBank();
+                msgdef.put("_iHeader", msgBank.getMessageDef("iHeader73", interactionId));
+                MessageDef inhead = ((MessageDef) msgdef.get("_iHeader")).cloneMsg();
+                inhead = setTellerParam(inhead, txnNo, headerValues);
+                apphdr = inhead.convFieldsToString();
+
+                docOp = null;
+            }
+        }
+        msgdef = msgBankInitRequest(txnNo.substring(1, txnNo.length()), 1,
+                resultData, msgdef, txnData,interactionId);
+
+        MessageDef inmsg = ((MessageDef) msgdef.get("m")).cloneMsg();
+        Iterator<Map.Entry<Object, Object>> dataFields = txnData.entrySet()
+                .iterator();
+        int collFlag = 0;
+        int collFlag1 = 0;
+
+        while (dataFields.hasNext()) {
+            Map.Entry<Object, Object> mapentry = (Map.Entry) dataFields.next();
+            String dataKey = (String) mapentry.getKey();
+
+            if ((dataKey != null) && !dataKey.equals("Coll") &&
+                    !dataKey.equals("Coll1") &&
+                    !(mapentry.getValue() instanceof JSONArray)) {
+                String dataValue = "";
+
+                if (mapentry.getValue() instanceof JSONArray) {
+                    //collection
+                } else {
+                    dataValue = (mapentry.getValue() != null)
+                            ? mapentry.getValue().toString() : "";
+                    dataValue = dataValue.trim();
+                    inmsg.setFieldValue(dataKey, dataValue);
+                }
+            } else if (dataKey.equals("Coll") || dataKey.equals("Coll1") ||
+                    mapentry.getValue() instanceof JSONArray) {
+                HashMap<String, Integer> collCountMap = new HashMap<String, Integer>();
+                collCountMap.put(dataKey, 0);
+
+                JSONArray collArrData = new JSONArray();
+
+                if (!(mapentry.getValue() instanceof JSONArray)) {
+                    JSONObject collData = (JSONObject) mapentry.getValue();
+                    collArrData.add(collData);
+                } else {
+                    collArrData = (JSONArray) mapentry.getValue();
+                }
+
+                for (Object collObjData : collArrData) {
+                    JSONObject collData = (JSONObject) collObjData;
+                    Iterator<Map.Entry<Object, Object>> collFields = collData.entrySet()
+                            .iterator();
+
+                    while (collFields.hasNext()) {
+                        Map.Entry<Object, Object> mapentry2 = (Map.Entry) collFields.next();
+                        String dataKey2 = (String) mapentry2.getKey();
+
+                        if (dataKey2 != null) {
+                            String dataValue2 = "";
+
+                            if (mapentry2.getValue() instanceof JSONArray) {
+                                processNestedCollection(mapentry2,
+                                        collCountMap.get(dataKey), inmsg);
+                            } else {
+                                dataValue2 = (mapentry2.getValue() != null)
+                                        ? mapentry2.getValue().toString().trim() : "";
+                                inmsg.setMoreFieldValue(dataKey2, dataValue2,
+                                        collCountMap.get(dataKey));
+                            }
+                        }
+                    }
+
+                    collCountMap.put(dataKey, collCountMap.get(dataKey) + 1);
+                }
+            }
+        }
+
+        String appmsg = inmsg.convFieldsToString();
+        ArrayList al = new ArrayList();
+        al.add(apphdr);
+        al.add(appmsg);
+        al.add(tranName);
+
+
+        return al;
+    }
+
+
+    private void processNestedCollection(Map.Entry<Object, Object> mapEntry,
+                                         Integer collcount, MessageDef inmsg) {
+        JSONArray collData = (JSONArray) mapEntry.getValue();
+        HashMap<String, Integer> collCountMap = new HashMap<String, Integer>();
+        collCountMap.put((String) mapEntry.getKey(), 0);
+
+        for (Object collObjData : collData) {
+            JSONObject collData1 = (JSONObject) collObjData;
+            Iterator<Map.Entry<Object, Object>> collFields = collData1.entrySet()
+                    .iterator();
+
+            while (collFields.hasNext()) {
+                Map.Entry<Object, Object> mapentry2 = (Map.Entry) collFields.next();
+                String dataKey2 = (String) mapentry2.getKey();
+
+                if (dataKey2 != null) {
+                    String dataValue2 = "";
+
+                    if (mapentry2.getValue() instanceof JSONArray) {
+                        processNestedCollection(mapentry2,
+                                collCountMap.get(mapEntry.getKey()), inmsg);
+                    } else {
+                        dataValue2 = ((String) mapentry2.getValue()).trim();
+                        FieldDef fldCurr = (FieldDef) inmsg.getMoreFieldDefs(dataKey2)
+                                .get(0);
+                        int count = 0;
+
+                        try {
+                            count = Integer.parseInt(fldCurr.getCollStart()
+                                    .substring(fldCurr.getCollStart()
+                                            .indexOf('_') +
+                                            1));
+                            count = count * collcount;
+                        } catch (Exception e) {
+                        }
+
+                        inmsg.setMoreFieldValue(dataKey2, dataValue2,
+                                collCountMap.get(mapEntry.getKey()) + count);
+                    }
+                }
+            }
+            collCountMap.put((String) mapEntry.getKey(),
+                    collCountMap.get(mapEntry.getKey()) + 1);
+        }
+    }
+
+    private Iterator getChildIterator(Iterator IterIp) {
+        Element IterElem = (Element) IterIp.next();
+        List ChildElemList = IterElem.elements();
+        Iterator ChildIter = ChildElemList.iterator();
+
+        return ChildIter;
+    }
+
+
+    private Hashtable msgBankInit(String s, int b, Hashtable ResultData,
+                                  Hashtable msgdef,String interactionId) {
+
+        MessageBank msgBank = new MessageBank();
+        msgBank.messageDefValMap.clear();
+        msgBank.messageDefValMap = messageDefValMap;
+        if(b==2)
+            System.out.println("msgBank.messageDefValMap:"+msgBank.messageDefValMap.get("hostResponse"));
+        log.debug(
+                "line 631-RestAdaptor - Header part will be printed now. value of b: " +
+                        2);
+        msgdef.put("_iHeader", msgBank.getMessageDef("iHeader73",interactionId));
+        if (b == 1) {
+            msgdef.put("m", msgBank.getMessageDef("i" + s,interactionId));
+        } else {
+            if (b == 2) {
+                log.debug("line 631-RestAdaptor - init method initiated for==>" +s);
+                msgBank.deleteMsgDef("o" + s);
+                msgdef.put("temp", msgBank.getMessageDef("o" + s,interactionId));
+            }
+            if (b == 3) {
+                msgdef.put("temp", msgBank.getMessageReDef("r" + s, ResultData,interactionId));
+            }
+        }
+        msgdef.put("_ErrorMessage", msgBank.getMessageDef("ErrorMessage", interactionId));
+
+        return msgdef;
+    }
+
+    private Hashtable msgBankInitRequest(String s, int b, Hashtable ResultData,
+                                         Hashtable msgdef, JSONObject txnData,String interactionId) {
+        MessageBank msgBank = new MessageBank();
+        msgBank.messageDefValMap = messageDefValMap;
+        msgBank.inputData = txnData;
+        msgdef.put("_iHeader", msgBank.getMessageDef("iHeader73",interactionId));
+        if (b == 1) {
+            msgdef.put("m", msgBank.getMessageDef("i" + s,interactionId));
+        } else {
+            if (b == 2) {
+                msgdef.put("temp", msgBank.getMessageDef("o" + s,interactionId));
+            }
+            if (b == 3) {
+                msgdef.put("temp", msgBank.getMessageReDef("r" + s, ResultData,interactionId));
+            }
+        }
+        msgdef.put("_ErrorMessage", msgBank.getMessageDef("ErrorMessage",interactionId));
+        return msgdef;
+    }
+
+    public String deserializeResponse(Vector v, String txnTagName,String interactionId)
+            throws DocumentException {
+        Dom4jLoad dom4jload = new Dom4jLoad();
+        org.json.JSONObject xmlJSONObj = null;
+        String jsonoutput = "";
+        Hashtable msgdef = new Hashtable();
+        msgdef.put("_iHeader", new MessageDef());
+        msgdef.put("_oHeader", new MessageDef());
+        msgdef.put("_ErrorMessage", new MessageDef());
+        msgdef.put("m", new MessageDef());
+        msgdef.put("temp", new MessageDef());
+        String actualName = new String();
+        ArrayList actualNames = new ArrayList();
+        boolean statflag = false;
+        Hashtable resultData = new Hashtable();
+        MessageDef outmsg = null;
+        MessageBank msgBank = new MessageBank();
+        Document documentResp = DocumentHelper.createDocument();
+        Element GroupElemResp = documentResp.addElement(txnTagName.substring(
+                0, txnTagName.length() - 2) + "Rs");
+        JSONObject obj = new JSONObject();
+        JSONObject rsObj = new JSONObject();
+        obj.put(txnTagName.substring(0, txnTagName.length() - 2) + "Rs", rsObj);
+        int collCount = 0;
+        Element ElemRespData = null;
+        JSONObject rsDataObj = new JSONObject();
+        JSONArray jsonCollResp1 = new JSONArray();
+        boolean headerFlag=false;
+        String OptValue = "";
+        for (int i = 0; i < v.size(); i++) {
+            String modifiedMsg = v.elementAt(i).toString()
+                    .replaceAll("[^\\p{ASCII}]", " ");
+            v.set(i, modifiedMsg);
+            String TranNo = v.elementAt(i).toString()	.substring(BancsConstants.tranNoStart,BancsConstants.tranNoEnd);
+            String OutputType = v.elementAt(i).toString().substring(BancsConstants.hostStatusStart,BancsConstants.hostStatusEnd);
+            if(OutputType.equalsIgnoreCase("03") && v.elementAt(i).toString().length()<140 && TranNo.equalsIgnoreCase("007090")) {
+                headerFlag=true;
+                continue;
+            }
+            log.error("Output Type:"+OutputType+" Tran code:"+TranNo);
+            if(OutputType.equalsIgnoreCase("55") && (TranNo.equalsIgnoreCase("007050")||TranNo.equalsIgnoreCase("069029"))) {
+                headerFlag=true;
+                continue;
+            }
+            if(OutputType.equalsIgnoreCase("08") && (TranNo.equalsIgnoreCase("050217")||TranNo.equalsIgnoreCase("032111"))) {
+                log.error("inside 050217 txn");
+                headerFlag=true;
+                continue;
+            }
+            if(OutputType.equalsIgnoreCase("03") && TranNo.equalsIgnoreCase("050215")) {
+                log.error("inside 050215 txn");
+                headerFlag=true;
+                continue;
+            }
+            if (messageDefValMap.get("tempMap1") != null) {
+                LinkedHashMap tempMapToClear = (LinkedHashMap) messageDefValMap.get(
+                        "tempMap1");
+                tempMapToClear.clear();
+                messageDefValMap.put("tempMap1", tempMapToClear);
+            }
+            messageDefValMap.put("dataIterationStarted", false);
+            boolean collAdded = true;
+            MessageDef outmsg1 = null;
+            messageDefValMap.put("hostResponse", v.elementAt(i).toString());
+            messageDefValMap.put("headerBeingParsed", true);
+            log.debug("MessageBankInit header being called");
+            msgBankInit("Header73", 2, resultData, msgdef,interactionId);
+            outmsg1 = ((MessageDef) msgdef.get("temp")).cloneMsg();
+            messageDefValMap.put("oHeaderMsgDefsVal", outmsg1);
+            outmsg1.convStringToFields(v.elementAt(i).toString()
+                    .substring(0,v.elementAt(i).toString().length()));
+            if(TranNo.equalsIgnoreCase("050217"))
+                outmsg1.addFieldDef(0, "Opt", "Option", 2, "", i, TranNo,OptValue  ,0,0);
+            resultData.put(TranNo + "-re-rx.xml", TranNo);
+            if ((boolean) messageDefValMap.get("includeSatisfied") &&
+                    !OutputType.equals("01") && !OutputType.equals("08")) {
+
+                if (((String) messageDefValMap.get("includeXML")).contains(
+                        "33.") ||
+                        ((String) messageDefValMap.get("includeXML")).contains(
+                                "88.")) {
+                    messageDefValMap.put("dataIterationStarted", true);
+                }
+                msgBank.messageDefValMap = messageDefValMap;
+                msgBank.parseHidden((String) messageDefValMap.get("includeXML"),
+                        msgdef,interactionId);
+            }
+            if (OutputType.equals("03")) {
+                msgBankInit(TranNo.substring(1, TranNo.length()), 3,
+                        resultData, msgdef,interactionId);//data reading ---need to check shubhangi
+            }
+            if ((boolean) messageDefValMap.get("includeSatisfied") &&
+                    !OutputType.equals("01") && !OutputType.equals("08")) {
+                outmsg = ((MessageDef) msgdef.get(messageDefValMap.get(
+                        "includeXML"))).cloneMsg();
+            } else {
+                outmsg = ((MessageDef) msgdef.get("temp")).cloneMsg();
+            }
+            messageDefValMap.put("headerBeingParsed", false);
+            String OutMsgIn = v.elementAt(i).toString()
+                    .substring(Integer.parseInt(System.getProperty(
+                            "dataStartPos")), v.elementAt(i).toString().length());
+            if (OutputType.equals("01")) {
+                outmsg = ((MessageDef) msgdef.get("_ErrorMessage")).cloneMsg();
+                OutMsgIn = v.elementAt(i).toString()
+                        .substring(Integer.parseInt(System.getProperty(
+                                        "errorCodeStart")) - 1,
+                                v.elementAt(i).toString().length());
+            } else if (OutputType.equals("08")) {
+                MessageBank messageBank = new MessageBank();
+                messageBank.setOkMessage(msgdef,interactionId);
+                outmsg = ((MessageDef) msgdef.get("OkMessage")).cloneMsg();
+            }
+            outmsg.convStringToFields(OutMsgIn);
+            boolean collstart = false;
+            boolean addCollTag = false;
+            boolean addCollEndTag = true;
+            String temp = null;
+            Element ElemCollResp = null;
+            Element ElemCollResp1 = null;
+            Element ParentCollNode = null;
+            Element dataElem = null;
+            JSONArray jsonCollResp = new JSONArray();
+            JSONObject jsonCollNode = new JSONObject();
+            JSONObject jsonCollNode1 = new JSONObject();
+            JSONObject jsonStatResp = new JSONObject();
+
+            if ((i == 0 || headerFlag) &&
+                    ((includeRsHeader != null) &&
+                            Boolean.parseBoolean(includeRsHeader))) {
+                for (Object fd : outmsg1.getFieldDefs()) {
+                    FieldDef fieldDef = (FieldDef) fd;
+                    if (!fieldDef.getCollStart().equals("")) {
+                        ElemCollResp = GroupElemResp.addElement(fieldDef.getCollStart());
+                        temp = fieldDef.getCollStart();
+                        addCollTag = true;
+                        jsonCollNode.clear();
+                        //@Author Ganesh
+                        rsObj.put(fieldDef.getCollStart(), jsonCollResp);
+                    }
+                    if (addCollTag) {
+                        Element ElemResp2 = ElemCollResp.addElement(fieldDef.getName());
+                        if (fieldDef.getValue() == null) {
+                            ElemResp2.setText("");
+                        } else {
+                            ElemResp2.setText(fieldDef.getValue()); //@Author Ganesh
+                        }
+                        jsonCollNode.put(fieldDef.getName(), fieldDef.getValue());
+                    } else {
+                        Element ElemResp = GroupElemResp.addElement(fieldDef.getName());
+                        ElemResp.setText(fieldDef.getValue());
+                        rsObj.put(fieldDef.getName(), fieldDef.getValue());
+                    }
+
+                    if (fieldDef.getCollEnd().equals(temp) ||
+                            (fieldDef.getCollEnd().contains(temp) &&
+                                    fieldDef.getCollEnd().contains(","))) {
+                        addCollTag = false;
+                    }
+                }
+            }
+            String tranNoRS = new String();
+            String rsTxnTagName = new String();
+            String dataName = new String();
+            if (!(boolean) messageDefValMap.get("includeSatisfied")) {
+                tranNoRS = "RS" + TranNo;
+            } else {
+                String includeXml = (String) messageDefValMap.get("includeXML");
+                if (includeXml.contains(".")) {
+                    TranNo = includeXml.substring(0, includeXml.indexOf('.'));
+                } else {
+                    TranNo = includeXml;
+                }
+            }
+            Document docOp = dom4jload.loadDocumentCached(new File(txnXMLFilePath +
+                    "/CFG.xml"));
+            List rsCFGList = docOp.selectNodes("//RS");
+            Iterator rsCFGIter = rsCFGList.iterator();
+            while (rsCFGIter.hasNext()) {
+                Iterator rsCFGChildIter = getChildIterator(rsCFGIter);
+                while (rsCFGChildIter.hasNext()) {
+                    Element rsCFGChildElem = (Element) rsCFGChildIter.next();
+                    rsTxnTagName = (txnTagName.substring(0,
+                            txnTagName.length() - 2)) + "Rs";
+                    if (!(boolean) messageDefValMap.get("includeSatisfied")) {
+                        if (rsCFGChildElem.getName().equals(tranNoRS)) {
+                            String originator = rsCFGChildElem.attributeValue(
+                                    "originator");
+
+                            if (originator != null) {
+                                if (originator.equals(txnTagName)) {
+                                    dataName = rsCFGChildElem.attributeValue(
+                                            "name") + "Data";
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                dataName = rsCFGChildElem.attributeValue("name") +
+                                        "Data";
+                            }
+                            break;
+                        }
+                    } else {
+                        if (rsCFGChildElem.getName().equals("RS" + TranNo)) {
+                            actualName = rsCFGChildElem.attributeValue("name");
+                            dataName = "Stat";
+                            statflag = true;
+                            actualNames.add(actualName);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!OutputType.equals("01") && !OutputType.equals("08") &&
+                    (i == 0||headerFlag) &&
+                    !(boolean) messageDefValMap.get("includeSatisfied")) {
+                ElemRespData = GroupElemResp.addElement(txnTagName.substring(
+                        0, txnTagName.length() - 2) + "Data");
+                rsObj.put(txnTagName.substring(0, txnTagName.length() - 2) +
+                        "Data", rsDataObj);
+            } else {
+                if ((boolean) messageDefValMap.get("includeSatisfied")) {
+                    ElemRespData = GroupElemResp.addElement("Stat");
+                    if ((actualName.indexOf("OkMessage") > -1) ||
+                            (actualName.indexOf("ErrorMessage") > -1) ||
+                            (actualName.indexOf("AlertMessage") > -1) ||
+                            (actualName.indexOf("SetMessage") > -1) ||
+                            (actualName.indexOf("SupervisorMessage") > -1)) {
+                        ElemRespData = ElemRespData.addElement(actualName);
+                        JSONObject jsonStatResp1 = new JSONObject();
+                        jsonStatResp1.put(actualName, jsonStatResp);
+                        rsObj.put("Stat", jsonStatResp1);
+                    } }	}
+
+            boolean ValueFound = false;
+            if (jsonCollNode.size() > 0) {
+                jsonCollResp.add(jsonCollNode);
+            }
+            for (int Count = 0;
+                 Count < (outmsg.getFieldDefs().size() - collCount);
+                 Count++) {
+                FieldDef fieldDef = (FieldDef) outmsg.getFieldDefs().get(Count);
+                if (addCollTag) {
+                    if ((fieldDef.getValue() != null) &&
+                            !fieldDef.getValue().trim().equals("")) {
+                        ValueFound = true;
+                    }
+                }
+                if (!fieldDef.getCollStart().equals("")) {
+                    if (addCollTag) {
+                        ElemCollResp = ElemCollResp.addElement(fieldDef.getCollStart());
+                        jsonCollNode1.put(fieldDef.getName(),
+                                fieldDef.getValue());
+                        jsonCollResp1.add(jsonCollNode1);
+                    } else {
+                        ElemCollResp = ElemRespData.addElement(fieldDef.getCollStart());
+                        rsDataObj.put(fieldDef.getCollStart(), jsonCollResp1);
+                    }
+                    temp = fieldDef.getCollStart();
+                    addCollTag = true;
+                    ValueFound = false;
+                    if (!fieldDef.getCollEnd().equals("")) {
+                        ValueFound = true;
+                    }
+                }
+                if (addCollTag) {
+                    Element tempNode = ElemCollResp.elementByID(fieldDef.getName());
+                    if (tempNode != null) {
+                    }
+                    Element ElemResp2 = ElemCollResp.addElement(fieldDef.getName());
+                    ElemResp2.setText(fieldDef.getValue());
+                    jsonCollNode1.put(fieldDef.getName(), fieldDef.getValue());
+                } else {
+                    try {
+                        Element tempNode = ElemRespData.element(fieldDef.getName());
+                        if (tempNode == null) {
+                            Element ElemResp = ElemRespData.addElement(fieldDef.getName());
+                            ElemResp.setText(fieldDef.getValue());
+                        } else {
+                            tempNode.setText(fieldDef.getValue());
+                        }
+                        if (rsObj.containsKey("Stat")) {
+                            jsonStatResp.put(fieldDef.getName(), fieldDef.getValue());
+                        } else {
+                            rsDataObj.put(fieldDef.getName(), fieldDef.getValue());
+                        }
+                    } catch (Exception ex) {
+                        log.error("fieldDef.getName():" + fieldDef.getName() +
+                                ":hostResponse: " +
+                                messageDefValMap.get("hostResponse"));
+                    }
+                }
+                if (fieldDef.getCollEnd().equals(temp) ||
+                        ((temp != null) &&
+                                fieldDef.getCollEnd().contains(temp) &&
+                                fieldDef.getCollEnd().contains(","))) {
+                    boolean nodeRemoved = false;
+
+                    if (!ValueFound &&
+                            ElemCollResp.getParent().equals(ElemRespData)) {
+                        ElemRespData.remove(ElemCollResp);
+                        jsonCollNode1.clear();
+                        addCollTag = false;
+                        nodeRemoved = true;
+                    } else if (!ValueFound) {
+                        Element tempRes = ElemCollResp;
+                        if (fieldDef.getCollEnd().contains(",")) {
+                            ElemCollResp = ElemCollResp.getParent().getParent();
+                        } else {
+                            ElemCollResp = ElemCollResp.getParent();
+                        }
+                        ElemCollResp.remove(tempRes);
+                        nodeRemoved = true;
+                    }
+
+                    if (!nodeRemoved) {
+                        if (fieldDef.getCollEnd().contains(",")) {
+                            ElemCollResp = ElemCollResp.getParent().getParent();
+                        } else {
+                            ElemCollResp = ElemCollResp.getParent();
+                        }
+                        temp = ElemCollResp.getName();
+                    }
+                    if (nodeRemoved) {
+                        temp = ElemCollResp.getName();
+                    }
+
+                    if ((ElemCollResp != null) &&
+                            ElemCollResp.equals(ElemRespData)) {
+                        addCollTag = false;
+                        jsonCollResp1.add(jsonCollNode1.clone());
+                    }
+                }
+                if(fieldDef.getName().equals("Opt") && (TranNo.equalsIgnoreCase("050217")) )  {
+                    OptValue = fieldDef.getValue();
+                }
+            }
+            if (jsonCollNode1.size() > 0) {
+                jsonCollResp1.add(jsonCollNode1);
+            }
+        }
+        if (jsonResponseAsString) {
+            jsonoutput = XML.toJSONObject(documentResp.asXML(), true).toString();
+        } else {
+            jsonoutput = XML.toJSONObject(documentResp.asXML()).toString();
+        }
+        log.error(jsonoutput);
+        return jsonoutput;
+    }
+
+    private MessageDef setTellerParam(MessageDef msgDef, String strTranNum,
+                                      LinkedHashMap<String, String> headerValues) throws DocumentException {
+        ArrayList fieldDefList = (ArrayList) msgDef.getFieldDefs();
+
+        for (Object object : fieldDefList) {
+            FieldDef fielddef = (FieldDef) object;
+            String fieldName = fielddef.getName();
+            msgDef.setFieldValue(fieldName, fielddef.getValue());
+
+            if (headerValues.containsKey(fieldName) &&
+                    !headerValues.get(fieldName).equalsIgnoreCase("")) { //224121: added to set data from request
+                msgDef.setFieldValue(fieldName, headerValues.get(fieldName));
+            } else {
+                if (fieldName.equalsIgnoreCase("WorkstationNum")) {
+                    msgDef.setFieldValue(fieldName, termIdNo);
+                } else if (fieldName.equalsIgnoreCase("InstNum")) {
+                    msgDef.setFieldValue(fieldName, instNo);
+                } else if (fieldName.equalsIgnoreCase("BrchNum")) {
+                    msgDef.setFieldValue(fieldName, branchNo);
+                } else if (fieldName.equalsIgnoreCase("TellerNum")) {
+                    msgDef.setFieldValue(fieldName, tellerNo);
+                }
+            }
+        }
+        msgDef.setFieldValue("TrnNum", strTranNum);
+        return msgDef;
+    }
+
+    private Vector doHostAccess(String appmsg, String apphdr) {
+        ConnectionPool ppool = null;
+
+        try {
+            ppool = (ConnectionPool) (System.getProperties().get("host.pool"));
+        } catch (ClassCastException e) {
+            ConnectionPool pool = null;
+
+            int initial = Integer.parseInt(System.getProperty("initialHostConn"));
+            int increment = Integer.parseInt(System.getProperty(
+                    "incrementHostConn"));
+            pool = ConnectionPoolImpl.createPool(initial, increment);
+            System.getProperties().put("host.pool", pool);
+
+            ppool = (ConnectionPool) (System.getProperties().get("host.pool"));
+            Vector v = null;
+            Comm mycomm = ppool.getConnection();
+            mycomm.setAppData(appmsg);
+            mycomm.setHeader(apphdr);
+            v = mycomm.getHost();
+            ppool.returnConnection(mycomm);
+            mycomm = null;
+            ppool = null;
+
+            return v;
+        }
+
+        Vector v = null;
+
+        try {
+            Comm mycomm = ppool.getConnection();
+
+            mycomm.setAppData(appmsg);
+            mycomm.setHeader(apphdr);
+
+            v = mycomm.getHost();
+            ppool.returnConnection(mycomm);
+            mycomm = null;
+            ppool = null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return v;
+    }
+}
+
+
+<CFG>
+  <TX>
+ <CIFSrchByMobileNumRq number="060170" />
+<!--<AmendPPSThresholdLimitModRq number="050239"/>-->
+<RequestMultAccessoryForCentVyavsayRq number="036650"/>
+<FateInqForVndrPmtRq number="036228"/>
+<LoanDischrgViaGLRq number="024245"/>
+<EnquireGoldCollateralAdnlDetailsRq number="067195"/>
+<NomAdditionRq number="069794"/>
+<ITaxCollRq number="036653"/>
+<DeDuplicationComplDetailsBasedOnKYCByIdTypeRq number="060468"/>
+<GoldRecoveryRq number="011009"/>
+<MNLROrFRIMobileNumberEnquiryRq number="062640"/>
+<MNLROrFRICIFNumberEnquiryRq number="062640"/>
+</TX>
+  <RS>
+    <RSOkMessage name="OkMessage" />
+    <RSErrorMessage name="ErrorMessage" />
+	<RSPBookCoverPrn name="PBookCoverPrn" />
+	<RS00 name="PassbookLine" />
+	<RS55 name="SetMessage" />
+	<RS04 name="ReasonMessage" />
+	<RSEmailMessageForAccount name="EmailMessageForAccount" />
+    <RS09 name="ReceiptPrint" />
+	<RS12 name="TermsAccount" />
+	<RS062090 name="InqPrimKycDetails" originator="InqPrimKycDetailsRq"/>
+	<RS060170 name="CIFSrchByMobileNum" originator="CIFSrchByMobileNumRq"/>
+	<RS062090 name="IndvCIFDetailsPulling" originator="IndvCIFDetailsPullingRq"/>
+	<RS067108 name="UpdDlvryChan"  originator="UpdDlvryChanRq"/>
+
+	<!--<RS060450 name="CustInfoInq"  originator="CustInqRq"/>
+  <RS060451 name="CustInfoInq1"  originator="CustInqRq"/>-->
+	<RS032032 name="CCODLiabilitiesPulling"  originator="CCODLiabilitiesPullingRq"/>
+<RS062091 name="NonIndvCIFDetailsPulling" originator="NonIndvCIFDetailsPullingRq"/>
+<RS060450 name="AcctInq" originator="AcctInqRq"/>
+<RS036228 name="FateInqForVndrPmt" originator="FateInqForVndrPmtRq"/>
+<RS067144 name="EnquireGoldCollateralAdnlDetails" originator="EnquireGoldCollateralAdnlDetailsRq"/>
+<RS060468 name="DeDuplicationComplDetailsBasedOnKYCByIdType" originator="DeDuplicationComplDetailsBasedOnKYCByIdTypeRq"/>
+<RS062641 name="MNLROrFRIMobileNumberEnquiry" originator="MNLROrFRIMobileNumberEnquiryRq"/>
+<RS062642 name="MNLROrFRICIFNumberEnquiry" originator="MNLROrFRICIFNumberEnquiryRq"/>
+  </RS>
+</CFG>
+
+
+<?xml version="1.0" standalone="yes"?><!-- screen developed by amit on 1/29/2026 LS2203 -->
+
+<GROUP ID="062640" Name="Status of Mobile Prompt">
+  <TX>
+  <FIELD Format="9(2)" ID="search" tagName="SrchBasedOn" label="Search based on:" />
+   <FIELD Format="X(5)" ID="CountryCodeMobileNo" tagName="CountryCodeOfMobileNum" label="Country code of Mobile Number:" />
+	<FIELD Format="9(10)" ID="MobNo" tagName="MobileNum" label="Mobile Number:" />
+	<FIELD Format="9(17)" ID="CifNum" tagName="CIFNum" label="CIF Number:" />
+
+</TX>
+  <RX>
+  <FIELD Format="9(2)" ID="search" tagName="SrchBasedOn" label="Search based on:" />
+   <FIELD Format="X(5)" ID="CountryCodeMobileNo" tagName="CountryCodeOfMobileNum" label="Country code of Mobile Number:" />
+	<FIELD Format="9(10)" ID="MobNo" tagName="MobileNum" label="Mobile Number:" />
+	<FIELD Format="9(17)" ID="CifNum" tagName="CustNum" label="CIF Number:" />
+ </RX>
+</GROUP>
+
+<?xml version="1.0" standalone="yes"?><!-- Created by Amit on 1/28/2026 for LS2203 -->
+<GROUP ID="062641" Name="Status based on Mobile Number">
+ <TX>
+   <FIELD Format="X(05)"  ID="CountryCodeMobileNo" tagName="CntryCodeOfMobNum" label="Country code of Mobile Number"/>
+   <FIELD Format="9(10)"  ID="MobNo" tagName="MobNum" label="Mobile Number"/>
+   <FIELD Format="X(03)"  ID="MatchWithMNRL" tagName="MatchedWithMNRLRec" label="Matched with MNRL record"/>
+   <FIELD Format="X(03)"  ID="MatchWithFRI" tagName="MatchedWithFRIRec" label="Matched with FRI record"/>
+ </TX>
+ <RX>
+   <FIELD Format="X(05)"  ID="CountryCodeMobileNo" tagName="CountryCodeOfMobNum" label="Country code of Mobile Number"/>
+   <FIELD Format="9(10)"  ID="MobNo" tagName="MobNum" label="Mobile Number"/>
+   <FIELD Format="X(03)"  ID="MatchWithMNRL" tagName="MatchedWithMNRLRec" label="Matched with MNRL record"/>
+   <FIELD Format="X(03)"  ID="MatchWithFRI" tagName="MatchedWithFRIRec" label="Matched with FRI record"/>
+   <COLLECTION ID="Collection1" tagName="Coll" NumSubParts="12">
+		<FIELD Format="9(02)"  ID="SrNo" tagName="SrNum" label="S.No"/>
+		<FIELD Format="9(17)"  ID="CIFNumber" tagName="CIFNum" label="CIF Number"/>
+		<FIELD Format="X(30)"  ID="NameCIF" tagName="NameOfCIFHldr" label="Name of CIF Holder"/>
+		<FIELD Format="ddMMyyyy"  ID="ChangedOn" tagName="ChngOn" label="Changed On"/>
+		<FIELD Format="9(07)"  ID="MakerID" tagName="MakerId" label="Maker ID"/>
+		<FIELD Format="9(07)"  ID="CheckerID" tagName="CheckerId" label="Checker ID"/>
+		<FIELD Format="9(07)"  ID="RoCheckerID" tagName="ROCheckerId" label="RO Checker ID"/>
+
+    </COLLECTION>
+ </RX>
+</GROUP>
