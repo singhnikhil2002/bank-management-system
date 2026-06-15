@@ -1,19 +1,19 @@
 package com.bank.cms.service.impl;
 
-
 import com.bank.cms.dto.request.LoginRequest;
 import com.bank.cms.dto.request.RegisterRequest;
 import com.bank.cms.dto.response.AuthResponse;
 import com.bank.cms.entity.User;
 import com.bank.cms.exception.ResourceNotFoundException;
+import com.bank.cms.exception.TooManyAttemptsException;
 import com.bank.cms.repository.CustomerRepository;
 import com.bank.cms.repository.UserRepository;
 import com.bank.cms.security.JwtService;
 import com.bank.cms.service.RedisService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -28,38 +28,34 @@ public class AuthServiceImpl {
     private final AuthenticationManager authenticationManager;
     private final RedisService redisService;
 
-    public AuthResponse register(RegisterRequest request){
+    public AuthResponse register(RegisterRequest request) {
 
-        // 1. Check email is taken or NOT -- if taken -> error | else -> success
-        if(userRepository.existsByEmail(request.getEmail())){
-            throw new RuntimeException("User not exits");
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email already registered");
         }
 
-        // 2. Check the customer number actually exists in your customer details
         customerRepository.findCustomerByCifNumber(request.getCifNumber())
-                .orElseThrow(() ->  new ResourceNotFoundException(
-                        "Account Not found " + request.getCifNumber()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Customer not found: " + request.getCifNumber()));
 
-        // 3. New User is created , store the password in Bcrypt
         User user = new User();
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setCifNumber(request.getCifNumber());
         user.setRole(User.Role.CUSTOMER);
-
         userRepository.save(user);
 
-        // 4. Issue token immediately issued after registration
         return new AuthResponse(
                 jwtService.generateAccessToken(user),
                 jwtService.generateRefreshToken(user)
         );
     }
+
     public AuthResponse login(LoginRequest request) {
 
-        // 1. Check if locked
+        // 1. Check if account is locked
         if (redisService.isLoginLocked(request.getEmail())) {
-            throw new RuntimeException(
+            throw new TooManyAttemptsException(
                     "Account locked due to too many failed attempts. Try again in 15 minutes.");
         }
 
@@ -69,25 +65,26 @@ public class AuthServiceImpl {
                     new UsernamePasswordAuthenticationToken(
                             request.getEmail(), request.getPassword()));
 
-            // 3. Success — reset attempts
+            // 3. Success — reset failed attempts
             redisService.resetLoginAttempts(request.getEmail());
 
-        } catch (Exception e) {
+        } catch (BadCredentialsException e) {   // ✅ catch specific exception
 
             // 4. Failed — increment counter
             int attempts = redisService.incrementLoginAttempts(request.getEmail());
 
             if (attempts >= 5) {
                 redisService.lockLogin(request.getEmail());
-                throw new RuntimeException(
+                throw new TooManyAttemptsException(
                         "Too many failed attempts. Account locked for 15 minutes.");
             }
 
-            throw new RuntimeException(
+            throw new TooManyAttemptsException(
                     "Invalid credentials. " + (5 - attempts) + " attempts remaining.");
-        }
 
-        // 5. Generate tokens
+        }   // ✅ catch block closes here
+
+        // 5. Generate tokens — OUTSIDE the try-catch
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -95,8 +92,7 @@ public class AuthServiceImpl {
                 jwtService.generateAccessToken(user),
                 jwtService.generateRefreshToken(user)
         );
-    }
-
+    }   // ✅ method closes here
 
     public String logout(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -105,7 +101,6 @@ public class AuthServiceImpl {
 
         String token = authHeader.substring(7);
 
-        // Get remaining TTL so blacklist auto-expires with the token
         long remainingTtl = jwtService.extractExpiration(token).getTime()
                 - System.currentTimeMillis();
 
@@ -115,6 +110,4 @@ public class AuthServiceImpl {
 
         return "Logged out successfully";
     }
-
-
 }
