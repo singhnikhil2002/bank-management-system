@@ -7,10 +7,7 @@ import com.bank.cms.dto.response.AuthResponse;
 import com.bank.cms.service.impl.AuthServiceImpl;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @AllArgsConstructor
@@ -35,6 +32,16 @@ public class AuthController {
                 "Success",
                 "Logged in Successfully",
                 authService.login(request)
+        );
+    }
+
+    @PostMapping("/logout")
+    public ApiResponse<String> logout(
+            @RequestHeader("Authorization") String authHeader) {
+        return new ApiResponse<>(
+                "SUCCESS",
+                "Logged out",
+                authService.logout(authHeader)
         );
     }
 

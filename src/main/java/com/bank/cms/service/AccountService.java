@@ -10,6 +10,7 @@ public interface AccountService {
     Account getAccountById(Long id);
 
  //  Account findByAccountNumber(String accountNumber);
+    Double getBalance(String accountNumber);
 
 }
 

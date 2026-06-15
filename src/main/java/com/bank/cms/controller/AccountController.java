@@ -111,4 +111,14 @@ public class AccountController {
         );
 
     }
+
+    @GetMapping("/{accountNumber}/balance")
+    public ApiResponse<Double> getBalance(@PathVariable String accountNumber) {
+        Double balance = accountService.getBalance(accountNumber);
+        return new ApiResponse<>(
+                "SUCCESS",
+                "Balance fetched",
+                balance
+        );
+    }
 }

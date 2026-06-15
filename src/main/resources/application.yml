@@ -1,3 +1,6 @@
+server:
+  port: 8081
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/bank_cms
@@ -13,8 +16,11 @@ spring:
       hibernate:
         format_sql: true
 
-server:
-  port: 8081
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
 
 springdoc:
   api-docs:
@@ -22,12 +28,13 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-# JWT secret — in production this comes from AWS Secrets Manager / Vault, never hardcoded
+# JWT Configuration
 jwt:
   secret: "your-super-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm"
   expiration: 900000
   refresh-expiration: 604800000
 
+# Logging Configuration
 logging:
   level:
     root: DEBUG

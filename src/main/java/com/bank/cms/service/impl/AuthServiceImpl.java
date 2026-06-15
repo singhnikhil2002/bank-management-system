@@ -9,6 +9,7 @@ import com.bank.cms.exception.ResourceNotFoundException;
 import com.bank.cms.repository.CustomerRepository;
 import com.bank.cms.repository.UserRepository;
 import com.bank.cms.security.JwtService;
+import com.bank.cms.service.RedisService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -25,6 +26,7 @@ public class AuthServiceImpl {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
+    private final RedisService redisService;
 
     public AuthResponse register(RegisterRequest request){
 
@@ -53,21 +55,66 @@ public class AuthServiceImpl {
                 jwtService.generateRefreshToken(user)
         );
     }
+    public AuthResponse login(LoginRequest request) {
 
-    public AuthResponse login(LoginRequest request){
+        // 1. Check if locked
+        if (redisService.isLoginLocked(request.getEmail())) {
+            throw new RuntimeException(
+                    "Account locked due to too many failed attempts. Try again in 15 minutes.");
+        }
 
-        // 1. Checking for BAD Credentials
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-        );
+        try {
+            // 2. Attempt authentication
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getEmail(), request.getPassword()));
 
-        // 2. Generate fresh token
+            // 3. Success — reset attempts
+            redisService.resetLoginAttempts(request.getEmail());
+
+        } catch (Exception e) {
+
+            // 4. Failed — increment counter
+            int attempts = redisService.incrementLoginAttempts(request.getEmail());
+
+            if (attempts >= 5) {
+                redisService.lockLogin(request.getEmail());
+                throw new RuntimeException(
+                        "Too many failed attempts. Account locked for 15 minutes.");
+            }
+
+            throw new RuntimeException(
+                    "Invalid credentials. " + (5 - attempts) + " attempts remaining.");
+        }
+
+        // 5. Generate tokens
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found exception"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         return new AuthResponse(
-            jwtService.generateAccessToken(user),
-            jwtService.generateRefreshToken(user)
+                jwtService.generateAccessToken(user),
+                jwtService.generateRefreshToken(user)
         );
     }
+
+
+    public String logout(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new RuntimeException("No token provided");
+        }
+
+        String token = authHeader.substring(7);
+
+        // Get remaining TTL so blacklist auto-expires with the token
+        long remainingTtl = jwtService.extractExpiration(token).getTime()
+                - System.currentTimeMillis();
+
+        if (remainingTtl > 0) {
+            redisService.blacklistToken(token, remainingTtl / 1000);
+        }
+
+        return "Logged out successfully";
+    }
+
+
 }

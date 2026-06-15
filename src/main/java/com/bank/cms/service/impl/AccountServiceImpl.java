@@ -5,6 +5,7 @@ import com.bank.cms.dto.request.UpdateAccountRequest;
 import com.bank.cms.dto.response.AccountResponse;
 import com.bank.cms.exception.ResourceNotFoundException;
 import com.bank.cms.service.AccountService;
+import com.bank.cms.service.RedisService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.bank.cms.entity.Account;
@@ -19,9 +20,11 @@ import java.time.format.DateTimeFormatter;
 @Service
 public class AccountServiceImpl implements AccountService {
     private final AccountRepository accountRepository;
+    private final RedisService redisService;
 
-    public AccountServiceImpl(AccountRepository accountRepository) {
+    public AccountServiceImpl(AccountRepository accountRepository, RedisService redisService) {
         this.accountRepository = accountRepository;
+        this.redisService = redisService;
     }
 
     @Override
@@ -87,5 +90,25 @@ public class AccountServiceImpl implements AccountService {
         LocalDateTime now = LocalDateTime.now();
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
         return now.format(dtf);
+    }
+
+    public Double getBalance(String accountNumber) {
+
+        // 1. Check Redis first
+        Double cached = redisService.getCachedBalance(accountNumber);
+        if (cached != null) {
+            System.out.println(">>> Cache HIT for: " + accountNumber);
+            return cached;
+        }
+
+        // 2. Cache miss — go to DB
+        System.out.println(">>> Cache MISS for: " + accountNumber);
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+
+        // 3. Store in Redis for next time
+        redisService.cacheBalance(accountNumber, account.getBalance());
+
+        return account.getBalance();
     }
 }

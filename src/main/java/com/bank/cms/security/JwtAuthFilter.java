@@ -1,6 +1,7 @@
 package com.bank.cms.security;
 //package com.bank.cms.config; // or wherever your config is located
 
+import com.bank.cms.service.RedisService;
 import com.bank.cms.service.impl.UserDetailsServiceImpl;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -22,6 +23,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsServiceImpl userDetailsService;
+    private final RedisService redisService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -39,26 +41,33 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         // 2. Extract token (remove "Bearer " prefix)
         final String jwt = authHeader.substring(7);
-        final String email = jwtService.extractEmail(jwt);
+
+        // ✅ NEW — check blacklist BEFORE anything else
+        if (redisService.isTokenBlacklisted(jwt)) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("Token has been invalidated. Please login again.");
+            return;
+        }
 
         // 3. If we have an email and no auth yet in context
-        if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+        try {
+            final String email = jwtService.extractEmail(jwt);
 
-            UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-            // 4. Validate token
-            if (jwtService.isTokenValid(jwt, email)) {
-
-                // 5. Create auth token and set in security context
-                UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(
-                                userDetails,
-                                null,
-                                userDetails.getAuthorities()
-                        );
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                if (jwtService.isTokenValid(jwt, email)) {
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                }
             }
+        } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("Invalid or expired token.");
+            return;
         }
 
         filterChain.doFilter(request, response);
