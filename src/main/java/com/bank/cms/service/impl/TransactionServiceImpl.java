@@ -4,6 +4,8 @@ import com.bank.cms.dto.request.TransactionRequest;
 import com.bank.cms.entity.Account;
 import com.bank.cms.entity.Transaction;
 import com.bank.cms.exception.ResourceNotFoundException;
+import com.bank.cms.kafka.TransactionEvent;
+import com.bank.cms.kafka.TransactionProducer;
 import com.bank.cms.repository.AccountRepository;
 import com.bank.cms.repository.TransactionRepository;
 import com.bank.cms.service.RedisService;
@@ -22,6 +24,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final RedisService redisService;      // ✅ properly injected now
+    private final TransactionProducer transactionProducer;
 
     @Override
     @Transactional
@@ -62,7 +65,18 @@ public class TransactionServiceImpl implements TransactionService {
         txn.setStatus("SUCCESS");
         txn.setType("TRANSFER");
         txn.setLocalDateTime(LocalDateTime.now());
-        transactionRepository.save(txn);
+        Transaction savedTxn = transactionRepository.save(txn);
+
+        TransactionEvent event = new TransactionEvent(
+                savedTxn.getId().toString(),       // eventId
+                request.getFromAccount(),     // fromAccount
+                request.getToAccount(),       // toAccount
+                request.getAmount(),          // amount
+                "SUCCESS",                    // status
+                "TRANSFER",                   // type
+                LocalDateTime.now()           // timestamp
+        );
+        transactionProducer.publishTransactionEvent(event);  // ✅ fire and forget
 
         return "Transaction Successful";
     }

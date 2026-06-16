@@ -20,7 +20,23 @@ spring:
     redis:
       host: localhost
       port: 6379
-      timeout: 2000ms
+      timeout: 2s # Changed '2000ms' to standard ISO-8601 duration '2s' for Boot 3.x
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: banking-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring:
+          json:
+            trusted:
+              packages: '*'
 
 springdoc:
   api-docs:
@@ -30,17 +46,13 @@ springdoc:
 
 # JWT Configuration
 jwt:
-  secret: "your-super-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm"
-  expiration: 900000
-  refresh-expiration: 604800000
+  secret: "your-super-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm" # Ensure this is Base64 encoded in production
+  expiration: 900000 # 15 minutes
+  refresh-expiration: 604800000 # 7 days
 
 # Logging Configuration
 logging:
   level:
-    root: DEBUG
-    com:
-      bank:
-        cms: DEBUG
-    org:
-      springframework:
-        security: DEBUG
+    root: INFO # Changed from DEBUG to INFO to prevent terminal spam
+    com.bank.cms: DEBUG # Keeps your own banking logic highly visible
+    org.springframework.security: DEBUG # Keeps security logs detailed for debugging JWTs
