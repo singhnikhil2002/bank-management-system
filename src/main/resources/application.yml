@@ -38,6 +38,22 @@ spring:
             trusted:
               packages: '*'
 
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+# Custom RabbitMQ properties for queues, exchanges, and routing keys
+rabbitmq:
+  queue:
+    otp: otp-queue
+    notification: notification-queue
+  exchange: banking-exchange
+  routing:
+    otp: otp-routing-key
+    notification: notification-routing-key
+
 springdoc:
   api-docs:
     path: /v3/api-docs

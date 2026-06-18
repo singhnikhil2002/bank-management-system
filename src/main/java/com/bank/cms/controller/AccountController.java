@@ -7,12 +7,15 @@ import com.bank.cms.dto.response.AccountResponse;
 import com.bank.cms.entity.Account;
 import com.bank.cms.service.AccountService;
 import com.bank.cms.service.impl.AccountServiceImpl;
+import com.bank.cms.service.impl.AuthServiceImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
@@ -23,6 +26,7 @@ public class AccountController {
 
     @Autowired
     private AccountServiceImpl accountServiceImpl;
+    private  AuthServiceImpl authService;
 
     public AccountController(AccountService accountService) {
         this.accountService = accountService;
@@ -119,6 +123,15 @@ public class AccountController {
                 "SUCCESS",
                 "Balance fetched",
                 balance
+        );
+    }
+
+    @PostMapping("/send-otp")
+    public ApiResponse<String> sendOtp(@RequestBody Map<String, String> request) {
+        return new ApiResponse<>(
+                "SUCCESS",
+                "OTP sent",
+                authService.sendOtp(request.get("email"))
         );
     }
 }

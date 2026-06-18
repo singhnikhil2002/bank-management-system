@@ -6,6 +6,8 @@ import com.bank.cms.dto.response.AuthResponse;
 import com.bank.cms.entity.User;
 import com.bank.cms.exception.ResourceNotFoundException;
 import com.bank.cms.exception.TooManyAttemptsException;
+import com.bank.cms.rabbitmq.OtpMessage;
+import com.bank.cms.rabbitmq.RabbitMQProducer;
 import com.bank.cms.repository.CustomerRepository;
 import com.bank.cms.repository.UserRepository;
 import com.bank.cms.security.JwtService;
@@ -27,6 +29,7 @@ public class AuthServiceImpl {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final RedisService redisService;
+    private final RabbitMQProducer rabbitMQProducer;
 
     public AuthResponse register(RegisterRequest request) {
 
@@ -109,5 +112,28 @@ public class AuthServiceImpl {
         }
 
         return "Logged out successfully";
+    }
+
+    public String sendOtp(String email) {
+
+        // 1. Find user by email
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        // 2. Generate 6-digit OTP
+        String otp = String.valueOf((int)(Math.random() * 900000) + 100000);
+
+        // 3. Store OTP in Redis with 5 min expiry
+        redisService.set("otp:" + email, otp, 300);
+
+        // 4. Push to RabbitMQ — SMS worker will pick it up
+        rabbitMQProducer.sendOtp(new OtpMessage(
+                "9876543210",    // in production: user.getMobileNumber()
+                email,
+                otp,
+                "LOGIN"
+        ));
+
+        return "OTP sent to registered mobile number";
     }
 }
